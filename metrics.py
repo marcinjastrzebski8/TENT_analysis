@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
 import pandas as pd
 import numpy as np
 from copy import deepcopy
 
-from quask_metrics import calculate_approximate_dimension, calculate_geometric_difference, calculate_model_complexity
+from quask_metrics import calculate_approximate_dimension, calculate_geometric_difference, calculate_model_complexity, calculate_model_complexity_generalized
 
 
 class Data_Object(ABC):
@@ -102,39 +102,39 @@ class Data_Kernel(Data_Object):
                        'reg_id': self.reg_id}
         return Data_Kernel(class_specs)
     
-    def compute_metrics(self):
-        metric_vals = {'d': [],
-                       's': [],
-                       'g': []}
-        #in case kernel was not found
-        if np.shape(self.kernel) == (1, ):
-            s = g = d = 0
-        else:
-            #d can always be found for a kernel
-            d = calculate_approximate_dimension(self.kernel)
-
+    def compute_metric(self, metric_type):
+        #forgot why I initialise this but its in case kernels dont load or smth
+        metric = 0
+        if metric_type == 'd':
+            #d can be found as long as a kernel exists
+            try:
+                metric = calculate_approximate_dimension(self.kernel)
+            except:
+                print(f'd couldnt be computed for {self.kernel_type} because the relevant kernel was not found')
+        elif metric_type == 's':
             #s requires the train labels file to exist
             try:
                 labels = self.load_tr_labels(self.reg_id)
-                s = calculate_model_complexity(self.kernel, labels)
+                metric = calculate_model_complexity(self.kernel, labels)
             except:
-                s = None
-                print('s couldnt be computed because the relevant train labels were not found')
-
+                print(f's couldnt be computed for {self.kernel_type} because the relevant train labels were not found')
+        elif metric_type == 's_gen':
+            #s requires the train labels file to exist
+            try:
+                labels = self.load_tr_labels(self.reg_id)
+                metric = calculate_model_complexity_generalized(self.kernel, labels)
+            except:
+                print(f's_gen couldnt be computed for {self.kernel_type} because the relevant train labels were not found')
+        elif metric_type == 'g':
             #g requires an analogous classical kernel to exist  
             try:
                 analogous_class = self.find_analogous_classic()
                 analogous_class.load(self.reg_id)
                 other_kernel = analogous_class.kernel
-                g = calculate_geometric_difference(self.kernel, other_kernel)
+                metric = calculate_geometric_difference(self.kernel, other_kernel)
             except:
-                g = None
-                print('g couldnt be computed because the analogous classical kernel was not found')
-        metric_vals['d'].append(d)
-        metric_vals['s'].append(s)
-        metric_vals['g'].append(g)       
-        metric_vals_df = pd.DataFrame(metric_vals).T
-        return metric_vals_df
+                print(f'g couldnt be computed for {self.kernel_type} because the analogous classical kernel was not found')
+        return metric
 
         
 
@@ -180,11 +180,7 @@ class Data_Preds(Data_Object):
         return self.df
     
 
-    def compute_metrics(self):
-        metric_vals = {'acc': [],
-                       'prec': [],
-                       'rec': [],
-                       'f1': []}
+    def compute_metric(self, metric_type):
 
         def decide_conf_matrix(x):
             """
@@ -220,17 +216,36 @@ class Data_Preds(Data_Object):
         #fpr, tpr, _ = roc_curve(results_df['a2'].tolist(), results_df['a12'].tolist())
         #roc_auc = auc(fpr, tpr)
 
-        for i, key in enumerate(metric_vals.keys()): metric_vals[key].append((acc, prec, rec, f1)[i])
-        
-        metric_vals_df = pd.DataFrame(metric_vals).T
-        return metric_vals_df
+        #feels a bit silly only saving one at a time but that flows better with the rest of the code
+        if metric_type == 'acc':
+            metric = acc
+        elif metric_type == 'prec':
+            metric = prec
+        elif metric_type == 'rec':
+            metric = prec
+        elif metric_type == 'f1':
+            metric = f1
+        else:
+            raise ('wrong metric type passed')        
+    
+        return metric
+
+def make_name_from_job_specs(job_specs, metric_type) -> str:
+    kernel_type = job_specs['kernel_type']
+    tracklet_type = job_specs['tracklet_type']
+    tr_size = job_specs['tr_size']
+    te_size = job_specs['te_size']
 
 
-def compute_avg_metrics(data_object_type, job_specs: Dict, err_type = 'std') -> Tuple[Dict]:
+    name = f'{metric_type}_{kernel_type}_{tracklet_type}_tr_{tr_size}_te_{te_size}'
+    return name
+
+
+def compute_avg_metrics(data_object_type, job_specs: Dict, err_type = 'std', metric_type: str = None) -> Tuple[Dict]:
     """
     Load kernels from all detector regions and find mean and std of the metrics.
     """
-    metrics_df_list = []
+    metric_list = []
     data_len_list = []
     for reg_id in range(16):
         reg_job_specs = deepcopy(job_specs)
@@ -243,17 +258,19 @@ def compute_avg_metrics(data_object_type, job_specs: Dict, err_type = 'std') -> 
             raise ValueError('data_object_type should be: \'kernel\' or \'preds\'')
         data_object.load(reg_id)
 
-        metrics_df = data_object.compute_metrics()
-        metrics_df_list.append(metrics_df)
-        #NEED TO SORT THIS - SHOULD OBTAIN THE LEN OF THE TRAINING!!! DATA
+        #it can take a long time to compute all the metrics for kernels so it can be useful to do one at a time
+        #hence different implementations
+        metric = data_object.compute_metric(metric_type = metric_type)
+        metric_list.append(metric)
+
         data_len = len(data_object.load_tr_labels(reg_id))
         data_len_list.append(data_len)
 
-    full_metrics_df = pd.concat(metrics_df_list, axis = 1)
-    
-    mean_metrics = full_metrics_df.mean(1)
+
+    print('metric_list:', metric_list)
+    mean_metrics = np.mean(metric_list)
     if err_type == 'std':
-        err_metrics = full_metrics_df.std(1)
+        err_metrics = np.std(metric_list)
     elif err_type == 'bayes_conf_int':
         #TODO: Add functionality to implement the bayesian confidence interval as error
         #should only be an option if working with predictions
@@ -261,5 +278,17 @@ def compute_avg_metrics(data_object_type, job_specs: Dict, err_type = 'std') -> 
 
     mean_len = np.mean(data_len_list)
     std_len = np.std(data_len_list)
+
+    #save the average metrics so they can be accessed for plotting later
+    #NOTE: the whole analysis pipeline will benefit from implementing this
+    #but it will require some changes to the way things are plotted
+    #workflow could be: get results -> obtain all metrics needed -> start plotting
+    #instead of: get results -> plot whilst getting metrics one at a time
+    name_from_config = make_name_from_job_specs(job_specs, metric_type)
+
+    np.save(f'metrics_from_results/mean_metrics_{name_from_config}', mean_metrics)
+    np.save(f'metrics_from_results/err_metrics_{name_from_config}', err_metrics)
+    np.save(f'metrics_from_results/mean_data_len_{name_from_config}', mean_len)
+    np.save(f'metrics_from_results/std_data_len_{name_from_config}', std_len)
 
     return (mean_metrics, err_metrics, mean_len, std_len)

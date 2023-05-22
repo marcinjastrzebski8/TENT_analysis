@@ -19,17 +19,18 @@ def metric_vs_train_size(canvas, metric, train_sizes, job_specs: List[List[Dict]
 
     for i, tr_size in enumerate(train_sizes):
         for j, job_spec in enumerate(job_specs):
-            if metric in ('g', 's', 'd'):
-                #TODO: ADD A SQRT(N) CURVE TO G. BUT NEED TO PLOT VS ACTUAL N FIRST RATHER THAN VS #EVENTS
+            kernel_type = job_specs[j][i]['kernel_type']
+            print(f'On tr_size {tr_size}, kernel type {kernel_type}')
+            if metric in ('g', 's', 'd', 's_gen'):
+                #TODO: ADD A SQRT(N) CURVE TO G.
                 data_object = 'kernel'
             elif metric in ('acc', 'prec', 'rec', 'f1'): #TODO: ADD ROC
                 data_object = 'preds'
-            m_y, std_y, m_x, std_x = compute_avg_metrics(data_object, job_specs[j][i])
-            ###TODO: HERE NEEDS FILLING
-            y_vals[j][i] = m_y[metric]
-            y_errs[j][i] = std_y[metric]
-            #this is a placeholder, m_x and std_x should be passed here
-            #they need to be from the lengths of the TRAINING data not TEST
+
+            m_y, std_y, m_x, std_x = compute_avg_metrics(data_object, job_specs[j][i], metric_type = metric)
+            y_vals[j][i] = m_y
+            y_errs[j][i] = std_y
+        
             x_vals[j][i] = m_x
             x_errs[j][i] = std_x
     print(y_vals, y_errs)

@@ -30,7 +30,7 @@ def calculate_approximate_dimension(k):
         d += 1 / (N - i) * sum(t[i:])
     return d
 
-def calculate_geometric_difference(k_1, k_2, normalization_lambda=0.5e-7): #originally 0.001
+def calculate_geometric_difference(k_1, k_2, normalization_lambda=0.5e-6): #originally 0.001
     """
     NOTE: Copied from QuASK
     Calculate the geometric difference g(K_1 || K_2), which is equation F9 in
@@ -60,7 +60,7 @@ def calculate_geometric_difference(k_1, k_2, normalization_lambda=0.5e-7): #orig
     f9 = np.sqrt(la.norm(f9_body, np.inf))
     return f9
 
-def calculate_model_complexity(k, y, normalization_lambda=0.5e-7): #originally 0.001
+def calculate_model_complexity(k, y, normalization_lambda=0.5e-6): #originally 0.001
     """
     NOTE: Copied from QuASK
     Calculate the model complexity s(K), which is equation F1 in
@@ -79,3 +79,40 @@ def calculate_model_complexity(k, y, normalization_lambda=0.5e-7): #originally 0
     k_body = k_inv @ k @ k_inv
     model_complexity = y.T @ k_body @ y
     return model_complexity
+
+def calculate_model_complexity_training(k, y, normalization_lambda=0.5e-6):
+    """
+    Subprocedure of the function 'calculate_model_complexity_generalized'.
+
+    Args:
+        k: Kernel gram matrix
+        y: Labels
+        normalization_lambda: Normalization factor
+
+    Returns:
+        model complexity of the given kernel
+    """
+    n = k.shape[0]
+    k_inv = la.inv(k + normalization_lambda * np.eye(n))
+    k_mid = k_inv @ k_inv # without k in the middle
+    model_complexity = (normalization_lambda**2) * (y.T @ k_mid @ y)
+    return model_complexity
+
+
+def calculate_model_complexity_generalized(k, y, normalization_lambda=0.5e-6):
+    """
+    Calculate the model complexity s(K), which is equation M1 in
+    "The power of data in quantum machine learning" (https://arxiv.org/abs/2011.01938).
+
+    Args:
+        k: Kernel gram matrix
+        y: Labels
+        normalization_lambda: Normalization factor
+
+    Returns:
+        model complexity of the given kernel
+    """
+    n = k.shape[0]
+    a = np.sqrt(calculate_model_complexity_training(k, y, normalization_lambda) / n)
+    b = np.sqrt(calculate_model_complexity(k, y, normalization_lambda) / n)
+    return a + b

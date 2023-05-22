@@ -163,3 +163,4 @@ predictions/*
 saved_kernels/*
 saved_tr_labels/*
 logbook.ipynb
+metrics_from_results/*
